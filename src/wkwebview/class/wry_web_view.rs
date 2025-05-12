@@ -2,14 +2,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-License-Identifier: MIT
 
+use objc2_app_kit::{NSTrackingArea, NSTrackingAreaOptions};
 use std::{collections::HashMap, sync::Mutex};
 
 #[cfg(target_os = "macos")]
 use objc2::runtime::ProtocolObject;
-use objc2::{define_class, rc::Retained, runtime::Bool, DeclaredClass};
+use objc2::{define_class, msg_send, rc::Retained, runtime::Bool, DeclaredClass};
 #[cfg(target_os = "macos")]
 use objc2_app_kit::{NSDraggingDestination, NSEvent};
-use objc2_foundation::{NSObjectProtocol, NSUUID};
+use objc2_foundation::{NSObjectProtocol, NSString, NSUUID};
 
 #[cfg(target_os = "ios")]
 use crate::wkwebview::ios::WKWebView::WKWebView;
@@ -29,6 +30,7 @@ pub struct WryWebViewIvars {
   pub(crate) drag_drop_handler: Box<dyn Fn(DragDropEvent) -> bool>,
   #[cfg(target_os = "macos")]
   pub(crate) accept_first_mouse: objc2::runtime::Bool,
+  pub(crate) always_track_mouse: objc2::runtime::Bool,
   #[cfg(target_os = "ios")]
   pub(crate) input_accessory_view_builder: Option<Box<crate::InputAccessoryViewBuilder>>,
   pub(crate) custom_protocol_task_ids: Mutex<HashMap<usize, Retained<NSUUID>>>,
@@ -60,6 +62,66 @@ define_class!(
     #[unsafe(method(acceptsFirstMouse:))]
     fn accept_first_mouse(&self, _event: &NSEvent) -> Bool {
       self.ivars().accept_first_mouse
+    }
+
+    #[cfg(target_os = "macos")]
+    #[unsafe(method(addTrackingArea:))]
+    fn add_tracking_area(&self, area: &NSTrackingArea) {
+      unsafe {
+        let always_track = self.ivars().always_track_mouse;
+        println!("addTrackingArea called");
+        println!("always_track: {:?}", always_track);
+
+        if always_track.is_false() {
+          let _: () = msg_send![super(self), addTrackingArea: area];
+          return;
+        }
+
+        let ns_owner: *mut objc2::runtime::AnyObject = msg_send![area, owner];
+        if ns_owner.is_null() || (*ns_owner).class() != objc2::class!(WKMouseTrackingObserver) {
+          let _: () = msg_send![super(self), addTrackingArea: area];
+          return;
+        }
+
+        let existing_options: u64 = msg_send![area, options];
+        let updated_options = (existing_options
+          & !(NSTrackingAreaOptions::ActiveInActiveApp.bits() as u64
+            | NSTrackingAreaOptions::ActiveInKeyWindow.bits() as u64
+            | NSTrackingAreaOptions::ActiveWhenFirstResponder.bits() as u64))
+          | NSTrackingAreaOptions::ActiveAlways.bits() as u64;
+
+        let key = NSString::from_str("options");
+        let value: *mut objc2::runtime::AnyObject =
+          msg_send![objc2::class!(NSNumber), numberWithUnsignedLong: updated_options];
+        let _: () = msg_send![area, setValue: value, forKey: &*key];
+
+        let _: () = msg_send![super(self), addTrackingArea: area];
+      }
+    }
+
+    #[cfg(target_os = "macos")]
+    #[unsafe(method(window))]
+    fn window(&self) -> *mut objc2::runtime::AnyObject {
+      unsafe {
+        let super_window: *mut objc2::runtime::AnyObject = msg_send![super(self), window];
+        let always_track = self.ivars().always_track_mouse;
+
+        if always_track.is_false() {
+          return super_window;
+        }
+
+        if let Some(s_window) = super_window.as_ref() {
+          let has_instance_var = s_window
+            .class()
+            .instance_variable(c"isResigningKey")
+            .is_some();
+          if has_instance_var {
+            return std::ptr::null_mut();
+          }
+        }
+
+        super_window
+      }
     }
 
     #[cfg(target_os = "ios")]

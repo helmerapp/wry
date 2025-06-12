@@ -19,6 +19,7 @@ use crate::{
   wkwebview::{drag_drop, synthetic_mouse_events},
   DragDropEvent,
 };
+use objc2::class;
 #[cfg(target_os = "ios")]
 use objc2_ui_kit::UIEvent as NSEvent;
 #[cfg(target_os = "macos")]
@@ -104,22 +105,22 @@ define_class!(
     fn window(&self) -> *mut objc2::runtime::AnyObject {
       unsafe {
         let super_window: *mut objc2::runtime::AnyObject = msg_send![super(self), window];
-        let always_track = self.ivars().always_track_mouse;
 
-        if always_track.is_false() {
+        if super_window.is_null() {
           return super_window;
         }
+        let tao_window_class = class!(TaoWindow);
 
-        if let Some(s_window) = super_window.as_ref() {
-          let has_instance_var = s_window
-            .class()
-            .instance_variable(c"isResigningKey")
-            .is_some();
-          if has_instance_var {
+        let is_tao_window: Bool = msg_send![super_window, isKindOfClass: tao_window_class];
+
+        if is_tao_window.is_true() {
+          let s_window = super_window.as_ref().unwrap();
+          let ivar_name = c"isResigningKey".to_str().unwrap();
+          let is_resigning_ivar = s_window.get_ivar::<Bool>(ivar_name);
+          if is_resigning_ivar.is_true() {
             return std::ptr::null_mut();
           }
         }
-
         super_window
       }
     }

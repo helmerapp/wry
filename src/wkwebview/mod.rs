@@ -340,12 +340,6 @@ impl InnerWebView {
         data_store.setValue_forKey(Some(&proxies), ns_string!("proxyConfigurations"));
       }
 
-      // NOTE: Private API — `allowsPictureInPictureMediaPlayback` is a private KVC key on WKPreferences.
-      _preference.setValue_forKey(
-        Some(&_yes),
-        ns_string!("allowsPictureInPictureMediaPlayback"),
-      );
-
       if attributes.javascript_disabled {
         // <https://developer.apple.com/documentation/webkit/wkwebviewconfiguration/defaultwebpagepreferences>
         // Available: macOS 10.15+, iOS 13+
@@ -543,10 +537,6 @@ impl InnerWebView {
         if has_inspectable_property {
           webview.setInspectable(true);
         }
-        // NOTE: Private API — `developerExtrasEnabled` is a private KVC key on WKPreferences.
-        // this cannot be on an `else` statement, it does not work on macOS :(
-        let dev = ns_string!("developerExtrasEnabled");
-        _preference.setValue_forKey(Some(&_yes), dev);
       }
 
       // Message handler
